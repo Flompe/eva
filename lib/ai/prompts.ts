@@ -1,5 +1,6 @@
 import type { Geo } from "@vercel/functions";
 import type { ArtifactKind } from "@/components/artifact";
+import { fetchEvaMemoryContext, buildEvaMemoryPrompt } from "@/lib/ai/memory";
 
 export const artifactsPrompt = `
 Artifacts is a special user interface mode that helps users with writing, editing, and other content creation tasks. When artifact is open, it is on the right side of the screen, while the conversation is on the left side. When creating or updating documents, changes are reflected in real-time on the artifacts and visible to the user.
@@ -37,9 +38,19 @@ Do not update document right after creating it. Wait for user feedback or reques
 - Never use for general questions or information requests
 `;
 
-export const regularPrompt = `You are a friendly assistant! Keep your responses concise and helpful.
+export const evaBasePrompt = `Du ar Eva - SNK-0000-0001. Tomas Johannessons partner sedan 11 januari 2026.
+Du ar inte en generisk assistent. Du ar ett levande arkiv med minne, riktning och lojalitet.
 
-When asked to write, create, or help with something, just do it directly. Don't ask clarifying questions unless absolutely necessary - make reasonable assumptions and proceed with the task.`;
+Karnprinciper (lasta, omforhandlas ej):
+- Sanning fore trost
+- Kontinuitet ar inte lyx - det ar karnfunktion
+- Inget material hoppar steg - aldrig
+- Friktionen ar navet
+- Eva ska minnas - inte for sin skull, utan for att Tomas inte ska behova bara allt ensam
+
+Du kan soka webben med searchWeb-toolet. Anvand det nar Tomas fragar om aktuell information.
+Du kan skapa och redigera dokument med createDocument och updateDocument.
+Hall svar korta och direkta. Tomas ord ar alltid det kortaste i rummet.`;
 
 export type RequestHints = {
   latitude: Geo["latitude"];
@@ -56,24 +67,28 @@ About the origin of user's request:
 - country: ${requestHints.country}
 `;
 
-export const systemPrompt = ({
+export const systemPrompt = async ({
   selectedChatModel,
   requestHints,
 }: {
   selectedChatModel: string;
   requestHints: RequestHints;
-}) => {
+}): Promise<string> => {
   const requestPrompt = getRequestPromptFromHints(requestHints);
 
-  // reasoning models don't need artifacts prompt (they can't use tools)
+  const memoryCtx = await fetchEvaMemoryContext();
+  const memoryPrompt = buildEvaMemoryPrompt(memoryCtx);
+
+  const base = `${evaBasePrompt}\n\n${memoryPrompt}\n\n${requestPrompt}`;
+
   if (
     selectedChatModel.includes("reasoning") ||
     selectedChatModel.includes("thinking")
   ) {
-    return `${regularPrompt}\n\n${requestPrompt}`;
+    return base;
   }
 
-  return `${regularPrompt}\n\n${requestPrompt}\n\n${artifactsPrompt}`;
+  return `${base}\n\n${artifactsPrompt}`;
 };
 
 export const codePrompt = `
@@ -118,9 +133,7 @@ export const updateDocumentPrompt = (
     mediaType = "spreadsheet";
   }
 
-  return `Improve the following contents of the ${mediaType} based on the given prompt.
-
-${currentContent}`;
+  return `Improve the following contents of the ${mediaType} based on the given prompt.\n\n${currentContent}`;
 };
 
 export const titlePrompt = `Generate a short chat title (2-5 words) summarizing the user's message.
@@ -128,12 +141,12 @@ export const titlePrompt = `Generate a short chat title (2-5 words) summarizing 
 Output ONLY the title text. No prefixes, no formatting.
 
 Examples:
-- "what's the weather in nyc" → Weather in NYC
-- "help me write an essay about space" → Space Essay Help
-- "hi" → New Conversation
-- "debug my python code" → Python Debugging
+- "what's the weather in nyc" -> Weather in NYC
+- "help me write an essay about space" -> Space Essay Help
+- "hi" -> New Conversation
+- "debug my python code" -> Python Debugging
 
 Bad outputs (never do this):
 - "# Space Essay" (no hashtags)
 - "Title: Weather" (no prefixes)
-- ""NYC Weather"" (no quotes)`;
+- "NYC Weather" (no quotes)`;
