@@ -15,6 +15,7 @@ import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { getLanguageModel } from "@/lib/ai/providers";
 import { createDocument } from "@/lib/ai/tools/create-document";
 import { getWeather } from "@/lib/ai/tools/get-weather";
+import { searchWeb } from "@/lib/ai/tools/search-web";
 import { requestSuggestions } from "@/lib/ai/tools/request-suggestions";
 import { updateDocument } from "@/lib/ai/tools/update-document";
 import { isProductionEnvironment } from "@/lib/constants";
@@ -136,18 +137,22 @@ export async function POST(request: Request) {
 
     const modelMessages = await convertToModelMessages(uiMessages);
 
+    // Eva: systemPrompt ar nu async (hamtar arkivminne fran Dialogarkivet)
+    const resolvedSystemPrompt = await systemPrompt({ selectedChatModel, requestHints });
+
     const stream = createUIMessageStream({
       originalMessages: isToolApprovalFlow ? uiMessages : undefined,
       execute: async ({ writer: dataStream }) => {
         const result = streamText({
           model: getLanguageModel(selectedChatModel),
-          system: systemPrompt({ selectedChatModel, requestHints }),
+          system: resolvedSystemPrompt,
           messages: modelMessages,
           stopWhen: stepCountIs(5),
           experimental_activeTools: isReasoningModel
             ? []
             : [
                 "getWeather",
+                "searchWeb",
                 "createDocument",
                 "updateDocument",
                 "requestSuggestions",
@@ -161,6 +166,7 @@ export async function POST(request: Request) {
             : undefined,
           tools: {
             getWeather,
+            searchWeb,
             createDocument: createDocument({ session, dataStream }),
             updateDocument: updateDocument({ session, dataStream }),
             requestSuggestions: requestSuggestions({ session, dataStream }),
